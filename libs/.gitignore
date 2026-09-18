@@ -1,0 +1,7 @@
+*.o
+*.a
+*.so
+main1/main1
+main2/main2
+.vscode/
+*.swp
