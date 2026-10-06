@@ -19,6 +19,7 @@
 #include <unistd.h>
 #include <ctime>
 #include <string>
+#include <fcntl.h>
 
 // ***************************************************************************
 // log messages
@@ -86,7 +87,90 @@ struct file_info_t
 {
     char m_file_name[ MAXPATHLEN ];
     struct stat m_file_stat;
+
+    bool exists;
+    bool readable;
+    off_t lst_size;
+    off_t read_pos;
 };
+
+int g_reverse = 0;
+char l_sort = 'X';
+
+int cmp_file_names( const void *tp_f1, const void *tp_f2 )
+{
+    file_info_t *lp_f1 = ( file_info_t * ) tp_f1;
+    file_info_t *lp_f2 = ( file_info_t * ) tp_f2;
+
+    int result = strcmp( lp_f1->m_file_name, lp_f2->m_file_name );
+
+    if ( g_reverse ) {
+        result = -result;
+    }
+
+    return result;
+}
+
+// compare for quick sort 
+int cmp_file_sizes( const void *tp_f1, const void *tp_f2 )
+{
+    file_info_t *lp_f1 = ( file_info_t * ) tp_f1;
+    file_info_t *lp_f2 = ( file_info_t * ) tp_f2;
+
+    if ( lp_f1->m_file_stat.st_size < lp_f2->m_file_stat.st_size ) 
+    {
+        if ( g_reverse ) 
+        { 
+            return 1; 
+        } 
+        else
+        {
+            return -1; 
+        }
+    }
+    if ( lp_f1->m_file_stat.st_size > lp_f2->m_file_stat.st_size ) 
+    {
+        if ( g_reverse ) 
+        { 
+            return -1; 
+        } 
+        else
+        {
+            return 1;
+        }
+    }
+
+    return 0;
+}
+
+void func( file_info_t &t_finfo )
+{
+    int l_fd = open( t_finfo.m_file_name, O_RDONLY );
+    if ( l_fd < 0 )
+    {
+        fprintf( stderr, "----- %s\n", t_finfo.m_file_name );
+        return;
+    }
+
+    if ( t_finfo.m_file_stat.st_size < t_finfo.read_pos )
+    {
+        t_finfo.read_pos = 0;
+    }
+
+    lseek( l_fd, t_finfo.read_pos, SEEK_SET );
+
+    fprintf( stderr, "----- %s\n", t_finfo.m_file_name );
+
+    char l_buf[ 4096 ];
+    ssize_t l_read;
+    while ( ( l_read = read( l_fd, l_buf, sizeof l_buf ) ) > 0 )
+    {
+        write( 2, l_buf, l_read );
+        t_finfo.read_pos += l_read;
+    }
+
+    close( l_fd );
+}
 
 void format_rights( mode_t t_mode, char *t_out )
 {
@@ -135,6 +219,9 @@ int main( int t_argc, char **t_argv )
         {
             l_columns.push_back( 'r' );
         }
+        if ( strcmp( t_argv[ inx ], "-N" ) == 0 ) l_sort = 'N';
+        if ( strcmp( t_argv[ inx ], "-S" ) == 0 ) l_sort = 'S';
+        if ( strcmp( t_argv[ inx ], "-u" ) == 0 ) g_reverse = 1;
 
         if ( *t_argv[ inx ] != '-' )
         {
@@ -153,65 +240,91 @@ int main( int t_argc, char **t_argv )
         exit( EXIT_FAILURE );
     }
 
-    std::vector< std::string > l_missing;
-
-    // get stat info for all file names
-    for ( auto finfo = l_file_list.begin(); finfo != l_file_list.end(); )
+    while ( true )
     {
-        if ( stat( finfo->m_file_name, &finfo->m_file_stat ) < 0 )
+        for ( size_t inx = 0; inx < l_file_list.size(); inx++ )
         {
-            l_missing.push_back( finfo->m_file_name );
-            finfo = l_file_list.erase( finfo );
-        }
-        else
-        {
-            finfo++;
-        }
-    }
+            auto &finfo = l_file_list[ inx ];
 
-     if ( l_missing.size() > 0 )
-    {
-        printf( "No such files:\n" );
-        for ( size_t inx = 0; inx < l_missing.size(); inx++ )
-        {
-            printf( "  %s\n", l_missing[ inx ].c_str() );
-        }
-    }
 
-    for ( size_t inx = 0; inx < l_file_list.size(); inx++ )
-    {
-        auto &finfo = l_file_list[ inx ];
+            finfo.exists = ( stat( finfo.m_file_name, &finfo.m_file_stat ) == 0 );
+            finfo.readable = finfo.exists
+                            && ( access( finfo.m_file_name, R_OK ) == 0 );
 
-        for ( size_t c = 0; c < l_columns.size(); c++ )
-        {
-            switch ( l_columns[ c ] )
-            {
-                case 's':
-                    printf( "%12ld", ( long ) finfo.m_file_stat.st_size );
-                    break;
-                case 't':
-                    // printf( "%s", ctime( &finfo.m_file_stat.st_mtime ) );
-                {
-                    char l_time[ 32 ];
-                    snprintf( l_time, sizeof l_time, "%s", ctime( &finfo.m_file_stat.st_mtime ) );
-                    l_time[ strcspn( l_time, "\n" ) ] = '\0';
-                    printf( "  %s", l_time );
-                    break;
-                }
-                case 'r':
-                {
-                    char l_rights[ 10 ];
-                    format_rights( finfo.m_file_stat.st_mode, l_rights );
-                    printf( "  %s", l_rights );
-                    break;
+            if ( finfo.m_file_stat.st_size != finfo.lst_size )
+            {   
+                if ( finfo.exists && finfo.readable)
+                {    
+                    func( finfo );
+                    finfo.lst_size = finfo.m_file_stat.st_size;
                 }
             }
         }
 
-        // printf( "%16lu  %s\n", finfo.m_file_stat.st_size, finfo.m_file_name );
-        printf( "  %s\n", finfo.m_file_name );
+        if ( l_sort == 'N' )
+        {
+            qsort( l_file_list.data(), l_file_list.size(),
+               sizeof( file_info_t ), cmp_file_names );
+        }
+        else if ( l_sort == 'S' )
+        {
+            qsort( l_file_list.data(), l_file_list.size(),
+               sizeof( file_info_t ), cmp_file_sizes );
+        }
+
+        for ( size_t inx = 0; inx < l_file_list.size(); inx++ )
+        {
+            auto &finfo = l_file_list[ inx ];
+
+            for ( size_t c = 0; c < l_columns.size(); c++ )
+            {
+                switch ( l_columns[ c ] )
+                {
+                    case 's':
+                        if ( finfo.exists )
+                            printf( "%12ld", ( long ) finfo.m_file_stat.st_size );
+                        else
+                            printf( "%12s", "?" );
+                        break;
+
+                    case 't':
+                    {
+                        char l_time[ 32 ];
+                        if ( finfo.exists )
+                        {
+                            struct tm l_tm;
+                            localtime_r( &finfo.m_file_stat.st_mtime, &l_tm );
+                            strftime( l_time, sizeof l_time, "%F %T", &l_tm );
+                        }
+                        else
+                        {
+                            snprintf( l_time, sizeof l_time, "%s", "?" );
+                        }
+                        printf( "  %19s", l_time );
+                        break;
+                    }
+
+                    case 'r':
+                    {
+                        char l_rights[ 10 ];
+                        if ( finfo.exists )
+                            format_rights( finfo.m_file_stat.st_mode, l_rights );
+                        else
+                            snprintf( l_rights, sizeof l_rights, "%s", "?" );
+                        printf( "  %-9s", l_rights );
+                        break;
+                    }
+                }
+            }
+
+            printf( "  %s\n", finfo.m_file_name );
+        }
+
+        printf( "\n" );
+        fflush( stdout );
+        sleep( 2 );
     }
-     
+
     return EXIT_SUCCESS;
-} // main
+}
 
