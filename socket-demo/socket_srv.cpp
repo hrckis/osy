@@ -110,8 +110,6 @@ void func_client( int l_sock_client )
 
         log_msg( LOG_DEBUG, "Read %d bytes from client.", l_len );
 
-        write( STDOUT_FILENO, l_buf, l_len );
-
         if ( !strncasecmp( l_buf, STR_CLOSE, strlen( STR_CLOSE ) ) )
         {
             log_msg( LOG_INFO, "Client sent 'close' request." );
@@ -119,32 +117,31 @@ void func_client( int l_sock_client )
         }
 
         l_buf[ l_len ] = '\0';
-        l_buf[ strcspn( l_buf, "\r\n" ) ] = '\0';
+        l_buf[ strcspn( l_buf, "\n" ) ] = '\0';
 
-        if ( l_buf[ 0 ] == '\0' ) continue;
+        if ( l_buf[ 0 ] == '\0' ) 
+            continue;
 
         char l_cmd[ 512 ];
-        snprintf( l_cmd, sizeof l_cmd, "print(\"%.200s=\",%.200s)\n", l_buf, l_buf );
+        sprintf( l_cmd, "print(\"%s=\",%s)\n", l_buf, l_buf );
 
-        log_msg( LOG_DEBUG, "Python command: %s", l_cmd );
-
-        int l_pos = strlen( l_batch );
-        snprintf( l_batch + l_pos, sizeof( l_batch ) - l_pos, "%s", l_cmd );
+        strcat( l_batch, l_cmd );
         l_count++;
 
-        log_msg( LOG_INFO, "Prepared examples: %d", l_count );
-
-        if ( l_count < 3 ) continue;
+        if ( l_count < 3 ) 
+            continue;
 
         int l_pipe[ 2 ];
         if ( pipe( l_pipe ) < 0 )
         {
             log_msg( LOG_ERROR, "Unable to create pipe." );
-            continue;
+            break;
         }
 
+        write( l_pipe[ 1 ], l_batch, strlen( l_batch ) );
+
         if ( fork() == 0 )
-        {   // GRANDCHILD - python
+        {   // GRANDCHILD
             dup2( l_pipe[ 0 ], STDIN_FILENO );
             dup2( l_sock_client, STDOUT_FILENO );
 
@@ -158,7 +155,6 @@ void func_client( int l_sock_client )
         }
 
         close( l_pipe[ 0 ] );
-        write( l_pipe[ 1 ], l_batch, strlen( l_batch ) );
         close( l_pipe[ 1 ] );
 
         l_batch[ 0 ] = '\0';
@@ -283,7 +279,7 @@ int main( int t_argc, char **t_argv )
                 exit( EXIT_FAILURE );
             }
 
-            log_msg( LOG_DEBUG, "Read %d bytes from stdin", l_len );
+            log_msg( LOG_DEBUG /* LOG_INFO */, "Read %d bytes from stdin", l_len );
             // request to quit?
             if ( !strncmp( buf, STR_QUIT, strlen( STR_QUIT ) ) )
             {

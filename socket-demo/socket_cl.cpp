@@ -160,8 +160,6 @@ int main( int t_argc, char **t_argv )
         exit( EXIT_FAILURE );
     }
 
-    srand( time( NULL ) );
-
     uint l_lsa = sizeof( l_cl_addr );
     // my IP
     getsockname( l_sock_server, ( sockaddr * ) &l_cl_addr, &l_lsa );
@@ -182,13 +180,15 @@ int main( int t_argc, char **t_argv )
     l_read_poll[ 1 ].fd = l_sock_server;
     l_read_poll[ 1 ].events = POLLIN;
 
+    srand( time( NULL ) );
+
     // go!
     while ( 1 )
     {
         char l_buf[ 128 ];
 
         // select from fds
-        int l_poll = poll( l_read_poll, 2, 5000 );
+        int l_poll = poll( l_read_poll, 2, 2000 );
 
         if ( l_poll < 0 ) break;
 
@@ -196,10 +196,17 @@ int main( int t_argc, char **t_argv )
         {
             int l_a = rand() % 100;
             int l_b = rand() % 100;
-            char l_op = ( rand() % 2 ) ? '+' : '-';
-
+            char l_op = '+';
+            if ( rand() % 2 == 0)
+            {
+                l_op = '+';
+            }
+            else
+            {
+                l_op = '-';
+            } 
             char l_task[ 64 ];
-            int l_task_len = snprintf( l_task, sizeof l_task, "%d%c%d\n", l_a, l_op, l_b );
+            int l_task_len = snprintf( l_task, sizeof( l_task ), "%d%c%d\n", l_a, l_op, l_b );
 
             log_msg( LOG_INFO, "Timeout - sending: %d%c%d", l_a, l_op, l_b );
 
@@ -208,8 +215,6 @@ int main( int t_argc, char **t_argv )
                 log_msg( LOG_ERROR, "Unable to send data to server." );
                 break;
             }
-            
-            continue;
         }
 
         // data on stdin?
